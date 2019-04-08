@@ -1,0 +1,187 @@
+---
+title: "F-Verteilung und Vergleich von Varianzen"
+author: "Simon Strzoda"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.width=6, fig.height=6, fig.path='Figs/',
+                      echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+### Zielsetzung und Vorstellung Datensatz
+Im folgenden soll die Varianz der Körpgergröße und des Gewichts zwischen Frauen und Männern untersucht werden. Der hier verwendete Datensatz stammt aus der "National Health and Nutrition Examination Survey" der Amerikanischen Gesundheitsbehörde CDC. Ziel dieser Datenerhebung ist die Erfassung des Gesundheitszustandes der Amerikanischen Bevölkerung. Die hier verwendeten Daten wurden durch von medizinischem Personal durchgeführten körperlichen Untersuchungen gewonnen.
+
+### Technisches Vorgehen
+Die zu einer Person gehörenden Variablen (z.B. Geschlecht, Alter, Körpergröße, Gewicht) sind thematische in Datein aufgeteilt, wobei die Zeilen der Dateien über einen Schlüssel zusammengeführt werden können. Da diese im proprietären .xpt Format sind wird die Bibliothek SASxport zum importieren verwendet. Die Zusammenführung der Dateien über das SEQN Attribut geschieht mit der Funktion "merge". Nun haben wir alle Daten in einer Datei vereint. Nun werden Kinder herausgefiltert, da diese noch nicht ausgewachsen sind. Die Variable is_female speichert in einer Liste den Wahrheitserwert TRUE ab wenn die Teilnehmerin weiblich ist. Mithilfe dieser Varaible kann dann eine Liste der Körpergrößen der Teilnehmerinnen ausgegeben werden. Zuletzt wird noch ein Histogramm zur Visualisierung der Verteilung erzeugt. 
+
+
+```{r}
+### Import der Daten 
+
+# Anmerkung zu Libraries: Bibliotheken werden mit der function install.packages('_NAME_') installiert
+library(SASxport)
+library(Hmisc)  
+# library(sm)
+
+demo <- read.xport("DEMO_I.XPT")
+bmx <- read.xport("BMX_I.XPT")
+
+# das Attribut all = FALSE sorgt dafür das der natural join gebildet wird. (Zeilen welche keinen Joinpartner haben werden nicht übernommen)
+merged <- merge(x=bmx, y=demo, by="SEQN", all = FALSE)
+
+# Herausfiltern von Kindern (noch nicht ausgewachsen)
+merged <- subset(merged, RIDAGEYR >= 20)
+
+# Liste der männlichen und weiblichen Teilnehmer berechnen
+# Laut der Dokumentation des Datensatzes steht 1 für männlich, 2 für weiblich
+is_male <- merged[,"RIAGENDR"] == 1
+is_female <- merged[,"RIAGENDR"] == 2
+
+male_participants <- merged[is_male,]
+female_participants <- merged[is_female,]
+
+male_weight <- male_participants[,"BMXWT"]
+female_weight <- female_participants[,"BMXWT"]
+
+male_height <- male_participants[,"BMXHT"]
+female_height <- female_participants[,"BMXHT"]
+
+# Nullwerte entfernen
+male_height<-male_height[!is.na(male_height)]
+female_height<-female_height[!is.na(female_height)]
+```
+
+
+```{r}
+# Berechen von Statistiken über die Daten
+count_female_height_samples <- length(female_height)
+count_male_height_samples <- length(male_height)
+
+# arithmetisches Mittel der Daten bestimmen
+mean_male_height <- mean(male_height)
+mean_female_height <- mean(female_height)
+
+# Berechnung der Stichprobenvarianzen
+var_male_height <- var(male_height)
+var_female_height <- var(female_height)
+
+# Hier wird die teststatistik berechnet
+f_verteilte_zufallsvariable <- var_female_height /var_male_height
+
+# Berechnen der Quantillen der F-Verteilung
+lower_bound_critical_value <- qf((.025), count_female_height_samples-1,count_male_height_samples-1, log.p = FALSE, lower.tail = TRUE)
+
+upper_bound_critical_value <- qf(.975, count_female_height_samples-1,count_male_height_samples-1, log.p = FALSE, lower.tail = TRUE)
+
+# In der methode var.test wird die bereits berechnete Teststatistik nochmal durch das Ergebnis der Quantillenfunktion mit den angegebenen Signifikanzniveaus geteilt. Warum?
+# https://stats.stackexchange.com/questions/31454/how-to-interpret-the-confidence-interval-of-a-variance-f-test-using-r
+# tldr: das Konfidenzintervall ist nicht das gleiche wie der Ablehungsbereich
+
+```
+
+### Grafische Visualisierung der Daten
+```{r}
+# Erstellen der Grafiken
+
+adjusted_female_height <- female_height
+adjusted_male_height <- male_height
+
+# arithmetisches Mittel von den verwendeten Daten abziehen
+for(i in 1:length(female_height)){
+  adjusted_female_height[i] <- female_height[i] - mean_female_height
+}
+
+for(i in 1:length(male_height)){
+  adjusted_male_height[i] <- adjusted_male_height[i] - mean_male_height
+}
+
+## three groups, each of length: length(x), length(y), length(z)
+group.index <- rep(1:2, c(length(adjusted_female_height), length(adjusted_male_height)))
+## collect data together and use sm.density.compare()
+# den <- sm.density.compare(c(adjusted_female_height,adjusted_male_height), group = group.index, model = "equal")
+## plot will be generated automatically
+
+
+
+# Dieser Befehl tut die Histogramme in eine Linie
+par(mfrow=c(2,2))
+
+hist_female = hist(female_height, main="Histogramm Körpergröße Frauen", xlab = "Körpergröße in Kilogram", ylab="Anzahl", col="green", breaks=30)
+
+hist_male = hist(male_height, main="Histogramm Körpergröße Männer", xlab = "Körpergröße in Kilogram", ylab="Anzahl", col="green", breaks=30)
+
+boxplot(female_height, male_height)
+
+plot(density(male_height))
+lines(density(female_height))
+
+
+#plot(density(male_height))
+# lines(density(male_height))
+
+
+```
+
+### Durchführung des F-Test
+Wir nehmen an dass die Körpergrößen von Frauen und Männern normalverteilt sind, d.h. dass die gemessenen Körpergrößen eine Realisierung von unabhängigen Zufallsvariablen $X_{1},...,X_{n}$ bzw. $Y_{1},...,Y_{m}$ darstellen wobei $X_{i} \sim N(\mu_{X},\sigma_{X}^{2})$ für alle $i$ und $Y_{j} \sim N(\mu_{Y},\sigma_{Y}^{2})$ für alle $j$ gilt.
+
+Hierbei steht $X$ für eine weibliche Person und $Y$ für eine männliche Person.
+
+Wir wollen überprüfen, ob die Varianzen der beiden Normalverteilungen gleich sind.
+
+Wir verwenden dazu den F-Test zum Niveau $\alpha = 0.05$. 
+
+Die Testhypothesen lauten dementsprechend:
+$$ Nullhypothese: \sigma^{2}_{X} = \sigma^{2}_{Y} \\  Gegenhypothese: \sigma^{2}_{X} \neq \sigma^{2}_{Y} $$
+Für den Test müssen wir zuerst die Teststatistik $\frac{S^{*2}_{X}}{S^{*2}_{Y}}$ berechnen. 
+
+Die Anzahlen der Probanden lauten
+$n=$ `r count_female_height_samples` und $m=$ `r count_male_height_samples`. 
+
+Zuerst rechnen wir den Mittelwert der Stichproben aus:
+$$ \overline{X} = \cfrac{\sum_{i=1}^{n}{X_{i}}}{n} \\
+\overline{Y} = \cfrac{\sum_{j=1}^{m}{Y_{j}}}{m} $$
+
+Wir berechnen: $\overline{X}=$ `r mean_female_height` und $\overline{Y}=$ `r mean_male_height`
+
+Nun können wir uns daran machen die Stichprobenvarianz (mit der korrigierten Zahl der Freiheitsgrade) zu berechnen:
+$$ s^{*2}_{X} = \cfrac{\sum_{i=1}^{n}{(X_{i}-\overline{X})^{2}}}{n-1}
+\\
+s^{*2}_{Y} = \cfrac{\sum_{j=1}^{m}{(Y_{j}-\overline{Y})^{2}}}{m-1}$$
+Wir berechnen: $S^{*2}_{X}=$ `r var_female_height` und $S^{*2}_{Y}=$ `r var_male_height` 
+
+Wie gesagt ist die Teststatistik der Quotient der beiden Stichprobenvarianzen
+
+($\frac{S^{*2}_{X}}{S^{*2}_{Y}}$). In unserer Rechnung gilt: $\frac{S^{*2}_{X}}{S^{*2}_{Y}}=$ `r f_verteilte_zufallsvariable `
+
+Um ein Testentscheidung treffen zu können müssen wir den kritischen Bereich zum Signifikanznievau $\alpha = 0.5$ bestimmen. Da es sich hierbei um einen zweiseitigen Signifikanztest handelt besteht zwischen Signifikanzniveau und dem kritischen Bereich folgenden Beziehung wobei T den Wert der Teststatistik bezeichnet: 
+$$\alpha=P(T<k_{1} \space oder \space k_{2} < T || H_{0} \space stimmt)$$
+Dementsprechend gilt $k_{1} = F_{n-1,m-1,\frac{\alpha}{2}}$ und $k_{2}=F_{n-1,m-1,1-\frac{\alpha}{2}}$.
+Mithilfe von R können wir die gesuchten Quantillen berechnen und es gilt 
+$k_{1}=$ `r lower_bound_critical_value` und $k_{2}=$ `r upper_bound_critical_value`.
+Damit steht auch unsere Testentscheidung fest: Wir müssen die Nullhpyothese ablehnen, da der Wert der Stichprobenstatistik $\frac{S^{*2}_{X}}{S^{*2}_{Y}}=$ `r f_verteilte_zufallsvariable ` $<k_{1}=$ `r lower_bound_critical_value` ist. Zwar kann kann immer noch die Möglichkeit bestehen, dass die zwei zugrunde liegenden Normalverteilungen die gleiche Varianz besitzen. Dies ist aber unwahrscheinlich, da  unter Annahme der Nullhypothese (Gleichheit der Varianzen) ein ähnlich extremes Testergebnis in weniger als 5% der Durchführungen eines Zufallsexperiments auftreten würde.
+Somit wird als Statistisch gesichert angesehen, dass die Verteilungen (Körpergröße von Männern und Frauen) zu einem Signifikanzniveau von 5% unterschiedliche Varianzen besitzen.
+
+### Von R mitgelieferte Methode var.test()
+```{r echo= TRUE}
+# verwenden von var.test
+var.test(female_height, male_height, ratio = 1)
+```
+
+
+### Verwendete Literatur 
+Mosler, K. und Schmid, F. (2008). Wahrscheinlichkeitsrechnung und schließende Statistik. Springer, Berlin.
+
+Krengel, U. (2005). Einführung in die Wahrscheinlichkeitstheorie und Statistik. Vieweg & Sohn Verlag. Wiesbaden. (Vor allem Testtheorie)
+
+Knöpel, H. und Löwe, M. (2007). Stochastik - Struktur im Zufall. Oldenbourg. München
+<!---
+notiz = "Notizen für mich 
+Soll das Gewicht wirklich verwendet werden? Im Histogramm sieht das nicht normalverteilt aus.
+Beim downlaod von Pakten: install.packages('_name_', dependencies = TRUE) dependencies = TRUE bewirkt dass auch alle Abhängigkeiten des Paktes installiert werden. Wenn das vergessen wird kann es sein dass das Paktet gar nicht installiert wird."
+--->
+
